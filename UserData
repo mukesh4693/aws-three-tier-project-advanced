@@ -1,0 +1,93 @@
+#!/bin/bash
+set -eux
+
+apt-get update -y
+apt-get install -y python3 python3-venv python3-pip
+
+mkdir -p /opt/three-tier
+cd /opt/three-tier
+
+python3 -m venv venv
+/opt/three-tier/venv/bin/pip install \
+    flask mysql-connector-python gunicorn
+
+cat > app.py <<'PY'
+import os
+from flask import Flask, jsonify
+import mysql.connector
+
+app = Flask(__name__)
+
+def get_db():
+    return mysql.connector.connect(
+        host=os.environ["DB_HOST"],
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+        database=os.environ["DB_NAME"],
+        connection_timeout=5
+    )
+
+@app.route("/")
+def home():
+    return """
+    <h1>Three-Tier AWS Application</h1>
+    <p>Flask application is running.</p>
+    <a href="/employees">View Employees</a>
+    """
+
+@app.route("/employees")
+def employees():
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT id, name, role, salary FROM employees"
+    )
+    data = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    rows = "".join(
+        f"<tr><td>{r['id']}</td>"
+        f"<td>{r['name']}</td>"
+        f"<td>{r['role']}</td>"
+        f"<td>{r['salary']}</td></tr>"
+        for r in data
+    )
+
+    return (
+        "<h1>Employee Details</h1>"
+        "<table border='1' cellpadding='8'>"
+        "<tr><th>ID</th><th>Name</th>"
+        "<th>Role</th><th>Salary</th></tr>"
+        + rows + "</table>"
+    )
+
+@app.route("/health")
+def health():
+    return "OK", 200
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+PY
+
+cat > /etc/systemd/system/three-tier.service <<'SERVICE'
+[Unit]
+Description=Three Tier Flask Application
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/three-tier
+Environment=DB_HOST=YOUR_RDS_ENDPOINT
+Environment=DB_USER=admin
+Environment=DB_PASSWORD=YOUR_DB_PASSWORD
+Environment=DB_NAME=projectDB
+ExecStart=/opt/three-tier/venv/bin/gunicorn \
+  --workers 2 --bind 0.0.0.0:5000 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+systemctl daemon-reload
+systemctl enable --now three-tier
