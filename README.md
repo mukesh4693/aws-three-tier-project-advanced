@@ -232,6 +232,35 @@ Security groups are stateful. Ensure the inbound rules on each destination allow
 
 The database is deployed in private subnets and is not directly accessible from the internet.
 
+## Create an IAM Role for EC2
+
+EC2 instances need permission to communicate with AWS services when using services such as Systems Manager (SSM) or Secrets Manager.
+
+**Steps:**
+
+1. Open the **AWS Management Console** and navigate to **IAM → Roles**.
+2. Click **Create role**.
+3. Select **AWS service** as the trusted entity.
+4. Select **EC2** as the use case.
+5. Attach the `AmazonSSMManagedInstanceCore` policy if you plan to use AWS Systems Manager Session Manager.
+6. Enter the role name as `ThreeTier-EC2-Role`.
+7. Click **Create role**.
+
+## 5. EC2 Launch Template
+
+| Setting | Value |
+|---|---|
+| AMI | Ubuntu Server LTS |
+| Instance Type | Smallest eligible type |
+| Key Pair | As required for SSH access |
+| Security Group | ThreeTier-APP-SG |
+| IAM Instance Profile | ThreeTier-EC2-Role |
+| Network Interface | Selected by Auto Scaling |
+| Auto-assign Public IP | Disabled |
+
+The launch template defines the configuration used to launch application EC2 instances.
+In the launch template, navigate to Advanced details → User data and paste the required bootstrap script to automatically install and start the Flask application when an EC2 instance launches.
+
 ## 2. Target Group Configuration
 
 | Setting | Value |
@@ -277,21 +306,6 @@ def health():
 
 The ALB distributes incoming HTTP traffic between healthy application instances.
 
-
-## 5. EC2 Launch Template
-
-| Setting | Value |
-|---|---|
-| AMI | Ubuntu Server LTS |
-| Instance Type | Smallest eligible type |
-| Key Pair | As required for SSH access |
-| Security Group | ThreeTier-APP-SG |
-| IAM Instance Profile | ThreeTier-EC2-Role |
-| Network Interface | Selected by Auto Scaling |
-| Auto-assign Public IP | Disabled |
-
-The launch template defines the configuration used to launch application EC2 instances.
-
 ## 6. Auto Scaling Group
 
 ### Configuration
@@ -322,6 +336,64 @@ The launch template defines the configuration used to launch application EC2 ins
 
 The Auto Scaling Group maintains the configured capacity and can launch or terminate instances based on scaling policies.
 
+
+## Test the Complete Architecture
+
+### Step : Verify the Three-Tier Architecture
+
+Test the complete architecture to ensure that all three tiers are communicating correctly.
+
+#### 1. Check the Auto Scaling Group
+
+1. Navigate to **AWS Console → EC2 → Auto Scaling Groups**.
+2. Select `ThreeTier-ASG`.
+3. Verify that the desired capacity is set to **2**.
+4. Ensure that both EC2 instances are running.
+5. Verify that the instances are distributed across the two application subnets in different Availability Zones.
+
+#### 2. Check the Target Group
+
+1. Navigate to **AWS Console → EC2 → Target Groups**.
+2. Select `ThreeTier-TG`.
+3. Open the **Targets** tab.
+4. Wait until both EC2 instances show the `Healthy` status.
+5. If any instance is unhealthy, check the Flask application, port `5000`, health check configuration, and associated security groups.
+
+#### 3. Access the Application Through the Application Load Balancer
+
+1. Navigate to **AWS Console → EC2 → Load Balancers**.
+2. Select `ThreeTier-ALB`.
+3. Copy the DNS name of the Application Load Balancer.
+4. Open a web browser and enter the following URL:
+
+   ```text
+   http://YOUR-ALB-DNS
+   ```
+
+5. Verify that the **Three-Tier AWS Application** page loads successfully.
+
+#### 4. Test Database Connectivity
+
+1. Open the ALB URL in your browser.
+2. Add `/employees` to the end of the ALB URL.
+
+   ```text
+   http://YOUR-ALB-DNS/employees
+   ```
+
+3. Press **Enter** to access the employees page.
+4. Verify that the employee records stored in Amazon RDS are displayed correctly.
+5. Confirm that the application can retrieve data from the database through the Flask application.
+
+**Expected Result:**
+
+- Both EC2 instances are running in the Auto Scaling Group.
+- Both registered instances show `Healthy` in the target group.
+- The application is accessible through the Application Load Balancer DNS name.
+- The Flask application successfully retrieves and displays employee records from Amazon RDS.
+
+These checks confirm that the load balancer, application tier, and database tier are communicating as expected.
+
 ## 7. Security Group Configuration
 
 | Security Group | Protocol | Port | Source |
@@ -344,66 +416,6 @@ Amazon Route 53 can be used to connect a custom domain to the Application Load B
 5. Access the application through the configured domain.
 
 For HTTPS, configure an SSL/TLS certificate using AWS Certificate Manager and an HTTPS listener on the ALB.
-
-## 9. Testing the Architecture
-
-### Test 1: Auto Scaling Group
-
-1. Navigate to EC2 → Auto Scaling Groups.
-2. Select ThreeTier-ASG.
-3. Verify that the desired capacity is two.
-4. Confirm that instances are running in both application subnets.
-
-### Test 2: Target Group Health
-
-1. Navigate to EC2 → Target Groups.
-2. Select ThreeTier-TG.
-3. Open the Targets tab.
-4. Verify that the registered EC2 instances have Healthy status.
-
-### Test 3: Application Load Balancer
-
-1. Navigate to EC2 → Load Balancers.
-2. Select ThreeTier-ALB.
-3. Copy the DNS name.
-4. Open the DNS name in a browser using HTTP.
-
-Example:
-
-```text
-http://YOUR-ALB-DNS
-```
-
-### Test 4: Database Connectivity
-
-Open the student API endpoint through the ALB.
-
-```text
-http://YOUR-ALB-DNS/api/students
-```
-
-The API should return the student records retrieved from Amazon RDS.
-
-Example response:
-
-```json
-{
-  "success": true,
-  "count": 2,
-  "students": [
-    {
-      "id": 1,
-      "username": "Arun",
-      "email": "arun@example.com"
-    },
-    {
-      "id": 2,
-      "username": "Ravi",
-      "email": "ravi@example.com"
-    }
-  ]
-}
-```
 
 ## 10. Key AWS Services Used
 
