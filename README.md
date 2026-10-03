@@ -35,76 +35,16 @@ The architecture separates the presentation, application, and database layers to
 
 ### 1. Create the VPC
 
-1. Open the **Amazon VPC** console.
-2. Choose **Your VPCs** → **Create VPC**.
-3. Select **VPC only**.
-4. Enter a name such as `three-tier-vpc`.
-5. Set the IPv4 CIDR to `10.0.0.0/16` (or your chosen non-overlapping range).
-6. Create the VPC.
-7. Create or attach an Internet Gateway, then attach it to the VPC.
+1.  Open the **Amazon VPC** console.
+2.  Select **Your VPCs → Create VPC**.
+3.  Choose **VPC only**.
+4.  Enter a name such as `three-tier-vpc`.
+5.  Set the IPv4 CIDR block to `10.0.0.0/16`, or use another
+    non-overlapping range.
+6.  Create the VPC.
+7.  Create an Internet Gateway and attach it to the VPC.
 
-### 2. Create the Six Subnets
-
-1. Open **Subnets** in the VPC console.
-2. Create the two public web subnets, one in each AZ.
-3. Create the two private app subnets, one in each AZ.
-4. Create the two private database subnets, one in each AZ.
-5. Use the CIDR plan in the [Network Design](#network-design) table, adjusting it if needed.
-6. Enable auto-assign public IPv4 addresses only for the public subnets if your design requires it. Private app and DB subnets should not auto-assign public IPs.
-
-### 3. Create and Associate Route Tables
-
-1. Create `public-rt`, add the default route to the Internet Gateway, and associate both web subnets.
-2. Create `app-rt-1` and `app-rt-2`.
-3. Create one NAT Gateway in each public AZ and allocate an Elastic IP to each.
-4. Add a default route in each app route table to the NAT Gateway in the same AZ.
-5. Associate each app route table with its corresponding app subnet.
-6. Create `db-rt` with only the local VPC route and associate both DB subnets.
-7. Verify all subnet associations and routes.
-
-### 4. Create Security Groups
-
-1. Open **EC2** → **Security Groups**.
-2. Create the five security groups listed in [Security Groups](#security-groups), selecting the project VPC.
-3. Configure inbound rules using the tables above.
-4. Attach each group to the correct load balancer, EC2 instance, or RDS database.
-5. Verify the source security group references and listening ports before testing.
-
-### 5. Configure Route 53
-
-1. Open **Amazon Route 53**.
-2. Create a **Public hosted zone** for a domain you own.
-3. Copy the hosted zone's assigned name servers.
-4. Open the domain registrar's DNS/name-server settings.
-5. Replace the existing name servers with the Route 53 name servers.
-6. Wait for the registrar changes and DNS delegation to propagate.
-7. Later, create an alias record that points your application hostname to the Web ALB.
-
-You must own or control the domain to update its name-server delegation.
-
-### 6. Request and Validate an ACM Certificate
-
-1. Open **AWS Certificate Manager (ACM)** in the same AWS Region as the ALB.
-2. Choose **Request a certificate** → **Request a public certificate**.
-3. Enter the domain name, for example `app.example.com`. Add any required subject alternative names.
-4. Choose **DNS validation**.
-5. Request the certificate.
-6. Use the CNAME record ACM provides. If the hosted zone is in Route 53, create the suggested record there.
-7. Wait until the certificate status is **Issued**.
-8. Attach the certificate to the ALB HTTPS listener.
-
-For an ALB, the ACM certificate must be in the same Region as the load balancer. If you also use HTTPS on an internal ALB, configure its listener and certificate separately as required.
-
-### 7. Create the RDS MySQL Database
-
-#### Create a DB subnet group
-
-1. Open **Amazon RDS** → **Subnet groups**.
-2. Create a DB subnet group and select the project VPC.
-3. Add `db-subnet-1` and `db-subnet-2`, which must be in different AZs.
-4. Save the subnet group.
-
-## 1. VPC Configuration
+## VPC Configuration
 
 | Setting | Value |
 |---|---|
@@ -117,6 +57,17 @@ For an ALB, the ACM certificate must be in the same Region as the load balancer.
 | Internet Gateway | ThreeTier-IGW |
 | NAT Gateway | ThreeTier-NAT |
 
+### 2. Create the Six Subnets
+
+1.  Open **Subnets** in the VPC console.
+2.  Create two public subnets, one in each Availability Zone.
+3.  Create two private application subnets, one in each Availability
+    Zone.
+4.  Create two private database subnets, one in each Availability Zone.
+5.  Use the [subnet plan](#subnet-plan) above.
+6.  Enable automatic public IPv4 assignment only for public subnets if
+    required. Keep it disabled for private subnets.
+
 ### Subnet Design
 
 | Subnet | CIDR | Purpose |
@@ -127,6 +78,8 @@ For an ALB, the ACM certificate must be in the same Region as the load balancer.
 | App-B | 10.0.4.0/24 | Private application EC2 |
 | DB-A | 10.0.5.0/24 | RDS subnet group |
 | DB-B | 10.0.6.0/24 | RDS subnet group |
+
+### 3. Configure Route Tables
 
 ### Route tables
 
@@ -249,6 +202,36 @@ RDS MySQL
 
 Security groups are stateful. Ensure the inbound rules on each destination allow the required source and port. Also confirm that network ACLs and application listeners do not block the traffic.
 
+## Amazon RDS MySQL Configuration
+
+### Database Configuration
+
+| Setting | Value |
+|---|---|
+| Engine | MySQL |
+| Version | Available supported version |
+| Template | Free tier, if available |
+| DB Instance Identifier | ThreeTier-MySQL |
+| Master Username | admin |
+| Master Password | Strong password |
+| DB Instance Class | Smallest eligible class |
+| Availability | Single-AZ |
+| Storage | Minimum permitted |
+| Storage Autoscaling | Disabled for cost-controlled lab |
+
+### Database Connectivity
+
+| Setting | Value |
+|---|---|
+| VPC | ThreeTier-VPC |
+| DB Subnet Group | ThreeTier-DB-Subnet-Group |
+| Subnets | ThreeTier-DB-A and ThreeTier-DB-B |
+| Public Access | No |
+| Security Group | ThreeTier-DB-SG |
+| Port | 3306 |
+
+The database is deployed in private subnets and is not directly accessible from the internet.
+
 ## 2. Target Group Configuration
 
 | Setting | Value |
@@ -294,35 +277,6 @@ def health():
 
 The ALB distributes incoming HTTP traffic between healthy application instances.
 
-## 4. Amazon RDS MySQL Configuration
-
-### Database Configuration
-
-| Setting | Value |
-|---|---|
-| Engine | MySQL |
-| Version | Available supported version |
-| Template | Free tier, if available |
-| DB Instance Identifier | ThreeTier-MySQL |
-| Master Username | admin |
-| Master Password | Strong password |
-| DB Instance Class | Smallest eligible class |
-| Availability | Single-AZ |
-| Storage | Minimum permitted |
-| Storage Autoscaling | Disabled for cost-controlled lab |
-
-### Database Connectivity
-
-| Setting | Value |
-|---|---|
-| VPC | ThreeTier-VPC |
-| DB Subnet Group | ThreeTier-DB-Subnet-Group |
-| Subnets | ThreeTier-DB-A and ThreeTier-DB-B |
-| Public Access | No |
-| Security Group | ThreeTier-DB-SG |
-| Port | 3306 |
-
-The database is deployed in private subnets and is not directly accessible from the internet.
 
 ## 5. EC2 Launch Template
 
@@ -495,4 +449,3 @@ Example response:
 This project demonstrates how to deploy a three-tier web application on AWS using EC2, Application Load Balancer, Auto Scaling, and Amazon RDS. It provides hands-on experience with AWS networking, application deployment, database connectivity, security, and scalability.
 
 **Note:** Instance availability, free-tier eligibility, and AWS pricing depend on the selected region and current AWS account terms.
-![Uploading image.png…]()
